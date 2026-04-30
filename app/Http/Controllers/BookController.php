@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreBookRequest;
+use App\Http\Requests\UpdateBookRequest;
 use App\Models\Book;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class BookController extends Controller
 {
@@ -12,12 +12,12 @@ class BookController extends Controller
     {
         $search = request('search');
 
+        $query = Book::query();
         if ($search) {
-            // zoek op titel
-            $books = DB::select("select * from books where title like '%$search%'");
-        } else {
-            $books = Book::all();
+            $query->where('title', 'like', "%{$search}%");
         }
+
+        $books = $query->get();
 
         return view('books.index', ['books' => $books]);
     }
@@ -27,38 +27,37 @@ class BookController extends Controller
         return view('books.create');
     }
 
-    public function store(Request $request)
+    public function store(StoreBookRequest $request)
     {
-        $data = $request->all();
+        $data = $request->validated();
         $data['owner_id'] = auth()->id();
-        $book = Book::create($data);
+        Book::create($data);
 
         return redirect('/books');
     }
 
-    public function show(string $id)
+    public function show(Book $book)
     {
-        $book = Book::findOrFail($id);
         return view('books.show', ['book' => $book]);
     }
 
-    public function edit(string $id)
+    public function edit(Book $book)
     {
-        $book = Book::findOrFail($id);
+        $this->authorize('update', $book);
         return view('books.edit', ['book' => $book]);
     }
 
-    public function update(Request $request, string $id)
+    public function update(UpdateBookRequest $request, Book $book)
     {
-        $book = Book::findOrFail($id);
-        $book->update($request->all());
+        $this->authorize('update', $book);
+        $book->update($request->validated());
 
         return redirect('/books');
     }
 
-    public function destroy(string $id)
+    public function destroy(Book $book)
     {
-        $book = Book::findOrFail($id);
+        $this->authorize('delete', $book);
         $book->delete();
 
         return redirect('/books');

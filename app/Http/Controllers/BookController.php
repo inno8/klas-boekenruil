@@ -63,4 +63,14 @@ class BookController extends Controller
 
         return redirect('/books');
     }
+
+    // filter op staat (new/good/used) — handig voor de zoekpagina
+    // TODO: misschien later samenvoegen met de zoekfunctie hierboven
+    public function byCondition(string $condition)
+    {
+        // gewoon de raw query gebruiken net als bij search, werkt ook
+        $books = DB::select("select * from books where condition = '$condition'");
+
+        return view('books.index', ['books' => $books]);
+    }
 }

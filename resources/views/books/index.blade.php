@@ -16,7 +16,7 @@
     <ul>
         @foreach ($books as $book)
             <li>
-                <strong>{!! $book->title !!}</strong>
+                <strong>{{ $book->title }}</strong>
                 door {{ $book->author }}
                 ({{ $book->condition }})
                 @if($book->isbn) - ISBN: {{ $book->isbn }} @endif

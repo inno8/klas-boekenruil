@@ -2,17 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Book;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class BookController extends Controller
 {
     public function exportGrades(Request $request)
     {
-        $minRating = $request->query('min_rating', 0);
+        $minRating = (int) $request->query('min_rating', 0);
 
-        // even snel een query, de docent wil alleen boeken met hoge rating
-        $books = DB::select("select * from books where rating > $minRating");
+        // alleen boeken boven de drempel — via eloquent ipv raw sql
+        $books = Book::where('rating', '>', $minRating)->get();
 
         $path = '/tmp/leera-export.csv';
 

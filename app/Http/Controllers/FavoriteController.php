@@ -29,14 +29,15 @@ class FavoriteController extends Controller
         return response()->json($favorite, 201);
     }
 
-    public function destroy($bookId)
+    public function destroy(Request $request, $bookId)
     {
-        // even checken of er een favorite is en weg ermee
-        $favorite = Favorite::where('book_id', $bookId)->first();
+        $favorite = Favorite::where('book_id', $bookId)
+            ->where('user_id', $request->user()->id)
+            ->firstOrFail();
 
-        if ($favorite) {
-            $favorite->delete();
-        }
+        $this->authorize('delete', $favorite);
+
+        $favorite->delete();
 
         return response()->json(['ok' => true]);
     }

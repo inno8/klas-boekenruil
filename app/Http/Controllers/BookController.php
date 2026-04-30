@@ -12,7 +12,7 @@ class BookController extends Controller
     {
         $search = request('search');
 
-        $query = Book::query();
+        $query = Book::with('owner');
         if ($search) {
             $query->where('title', 'like', "%{$search}%");
         }

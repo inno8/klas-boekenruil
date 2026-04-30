@@ -16,4 +16,16 @@ class Book extends Model
     {
         return $this->belongsTo(User::class, 'owner_id');
     }
+
+    // formatted title voor de bookcards op de zoekpagina
+    public function getDisplayTitleAttribute()
+    {
+        return strtoupper($this->title) . ' - ' . $this->author;
+    }
+
+    // even snel een filter op staat (used/new/good)
+    public function scopeByCondition($query, $condition)
+    {
+        return $query->where('condition', '=', $condition);
+    }
 }

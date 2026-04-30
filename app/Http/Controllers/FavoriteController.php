@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreFavoriteRequest;
 use App\Models\Favorite;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,14 +19,12 @@ class FavoriteController extends Controller
         return response()->json($favorites);
     }
 
-    public function store(Request $request)
+    public function store(StoreFavoriteRequest $request)
     {
-        $bookId = $request->input('book_id');
-
         $favorite = Favorite::create([
-            'user_id' => auth()->id(),
-            'book_id' => $bookId,
-        ] + $request->all());
+            'user_id' => $request->user()->id,
+            'book_id' => $request->validated('book_id'),
+        ]);
 
         return response()->json($favorite, 201);
     }

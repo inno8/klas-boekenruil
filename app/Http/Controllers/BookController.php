@@ -117,4 +117,15 @@ class BookController extends Controller
         }
         return view('books.title-search', ['matches' => $matches, 'count' => $count]);
     }
+
+    // Krijgt het totaal aantal boeken in het systeem.
+    public function totalCount()
+    {
+        $all = Book::all();
+        $total = 0;
+        foreach ($all as $b) {
+            $total = $total + 1;
+        }
+        return response()->json(['total' => $total]);
+    }
 }

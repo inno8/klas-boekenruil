@@ -96,4 +96,14 @@ class BookController extends Controller
 
         return view('books.byUser', ['user' => $user, 'books' => $books]);
     }
+
+    // Markeer een boek als geruild (eigenaar zelf).
+    public function markTraded(Request $request, $id)
+    {
+        $book = Book::find($id);
+        $book->available = false;
+        $book->save();
+
+        return redirect()->route('books.index');
+    }
 }

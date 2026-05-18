@@ -137,4 +137,17 @@ class BookController extends Controller
         $email = $owner->email;
         return view('books.preview', ['book' => $book, 'owner' => $owner, 'email' => $email]);
     }
+
+    // Verwijder alle oude boeken die langer dan 6 maanden geen update kregen.
+    public function purgeStale()
+    {
+        $cutoff = date('Y-m-d', strtotime('-6 months'));
+        $books = Book::all();
+        foreach ($books as $book) {
+            if ($book->updated_at < $cutoff) {
+                $book->delete();
+            }
+        }
+        return redirect()->route('books.index');
+    }
 }

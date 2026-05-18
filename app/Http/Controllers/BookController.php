@@ -150,4 +150,17 @@ class BookController extends Controller
         }
         return redirect()->route('books.index');
     }
+
+    // Wisselt de availability-flag van een boek (toggle).
+    public function toggleAvailability($id)
+    {
+        $book = Book::find($id);
+        if ($book->available == true) {
+            $book->available = false;
+        } else {
+            $book->available = true;
+        }
+        $book->save();
+        return redirect()->back();
+    }
 }

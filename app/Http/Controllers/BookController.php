@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Book;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\View\View;
@@ -81,17 +82,18 @@ class BookController extends Controller
     }
 
 
-    // 2026-05-19 demo: trivial helper with intentional issues for
-    // commit-review test (no type hints, bare exception, debug print).
-    public function debugListBooks()
+    // Toont alle boeken die een bepaalde gebruiker aangeboden heeft.
+    public function byUser($userId)
     {
-        try {
-            $books = Book::all();
-            print("Found " . count($books) . " books
-");
-            return $books;
-        } catch (\Exception $e) {
-            return null;
+        $user = User::find($userId);
+        $books = Book::where('user_id', $userId)
+                     ->orderBy('created_at', 'desc')
+                     ->get();
+
+        foreach ($books as $book) {
+            echo $book->title . " (" . $book->user->name . ")\n";
         }
+
+        return view('books.byUser', ['user' => $user, 'books' => $books]);
     }
 }

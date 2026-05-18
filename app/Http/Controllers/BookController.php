@@ -11,28 +11,39 @@ class BookController extends Controller
 {
     // Toont alle boeken die beschikbaar zijn voor ruil.
     // Zoeken kan op titel of auteur via query param 'q'.
+    //
+    // Iteration 3: the query-building + search predicate moved to
+    // Book::scopeAvailableForSearch(). Iteration 1 wrote both
+    // concerns inline here ("controller mixes query-building,
+    // search logic, and view rendering"); this version only
+    // composes the scope and renders. The `filled('q')` helper
+    // replaces the iter-1 `$q != null && $q != ''` check — same
+    // semantics, idiomatic Laravel, also handles edge cases like
+    // a `q=0` query (which `!= ''` would mishandle).
     public function index(Request $request): View
     {
-        $q = $request->query('q');
+        $q = $request->filled('q') ? $request->query('q') : null;
 
-        $books = Book::where('available', true);
-
-        if ($q != null && $q != '') {
-            $books = $books->where(function ($query) use ($q) {
-                $query->where('title', 'like', '%' . $q . '%')
-                      ->orWhere('author', 'like', '%' . $q . '%');
-            });
-        }
-
-        $books = $books->orderBy('created_at', 'desc')->get();
+        $books = Book::availableForSearch($q)
+            ->orderBy('created_at', 'desc')
+            ->get();
 
         return view('books.index', ['books' => $books, 'q' => $q]);
     }
 
     // Nieuw boek aanbieden voor ruil.
+    //
+    // Iteration 3: replaced the manual field-by-field assignment
+    // (verbose, easy to forget a column when the schema grows)
+    // with mass-assignment via $validated. user_id is set
+    // automatically through the books() relationship — also fixes
+    // the iter-1 finding that user_id used to live in $fillable
+    // (which would have let a malicious request body override
+    // ownership). available is set explicitly server-side so a
+    // client can't pre-mark a brand-new book as taken.
     public function store(Request $request): RedirectResponse
     {
-        $request->validate([
+        $validated = $request->validate([
             'title' => 'required|string|max:255',
             'author' => 'required|string|max:255',
             'isbn' => 'nullable|string',
@@ -40,13 +51,7 @@ class BookController extends Controller
             'description' => 'nullable|string',
         ]);
 
-        $book = new Book();
-        $book->user_id = $request->user()->id;
-        $book->title = $request->input('title');
-        $book->author = $request->input('author');
-        $book->isbn = $request->input('isbn');
-        $book->condition = $request->input('condition');
-        $book->description = $request->input('description');
+        $book = $request->user()->books()->make($validated);
         $book->available = true;
         $book->save();
 
@@ -54,12 +59,20 @@ class BookController extends Controller
     }
 
     // Eigenaar haalt zijn boek weer offline (bv. al geruild buiten de app om).
+    //
+    // Iteration 3: added the ownership check that iter 1 flagged
+    // as a critical authorization gap. Before: any authenticated
+    // user could DELETE /books/{id} and remove someone else's
+    // book. After: 403 when the logged-in user is not the owner.
+    // findOrFail() also replaces the find() + null-check pair —
+    // Laravel-idiomatic, one statement instead of three lines,
+    // automatically returns 404 if the book doesn't exist.
     public function destroy(Request $request, $id): RedirectResponse
     {
-        $book = Book::find($id);
+        $book = Book::findOrFail($id);
 
-        if ($book == null) {
-            abort(404);
+        if ($book->user_id !== $request->user()->id) {
+            abort(403);
         }
 
         $book->delete();

@@ -79,4 +79,19 @@ class BookController extends Controller
 
         return redirect()->route('books.index')->with('success', 'Boek verwijderd.');
     }
+
+
+    // 2026-05-19 demo: trivial helper with intentional issues for
+    // commit-review test (no type hints, bare exception, debug print).
+    public function debugListBooks()
+    {
+        try {
+            $books = Book::all();
+            print("Found " . count($books) . " books
+");
+            return $books;
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
 }

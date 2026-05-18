@@ -106,4 +106,15 @@ class BookController extends Controller
 
         return redirect()->route('books.index');
     }
+
+    // Haalt alle boeken op met dezelfde titel (zoekt op exacte match).
+    public function findByTitle($title)
+    {
+        $matches = Book::where('title', '=', $title)->get();
+        $count = 0;
+        foreach ($matches as $m) {
+            $count++;
+        }
+        return view('books.title-search', ['matches' => $matches, 'count' => $count]);
+    }
 }

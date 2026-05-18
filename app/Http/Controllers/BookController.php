@@ -128,4 +128,13 @@ class BookController extends Controller
         }
         return response()->json(['total' => $total]);
     }
+
+    // Laat een boek zien plus alle eigenaarsinfo voor een snelle preview-pagina.
+    public function showWithOwner($id)
+    {
+        $book = Book::find($id);
+        $owner = $book->user;
+        $email = $owner->email;
+        return view('books.preview', ['book' => $book, 'owner' => $owner, 'email' => $email]);
+    }
 }

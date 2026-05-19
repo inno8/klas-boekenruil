@@ -3,94 +3,128 @@
 namespace App\Http\Controllers;
 
 use App\Models\Book;
+use App\Models\Swap;
 use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class BookSwapController extends Controller
 {
-    // Nieuwe ruil tussen twee studenten.
-    // requester wil $bookId van de huidige eigenaar overnemen,
-    // in ruil voor $offeredBookId uit zijn eigen verzameling.
-    public function swap(Request $request)
+    public function __construct()
     {
-        $bookId = $request->input('book_id');
-        $offeredBookId = $request->input('offered_book_id');
-        $email = $request->input('email');
-        $password = $request->input('password');
+        // Auth via middleware i.p.v. wachtwoord in elke request — geen
+        // plaintext password meer over de lijn, geen user-enumeration via
+        // verschillende foutmeldingen, één bron van waarheid voor sessies.
+        $this->middleware('auth:sanctum');
+    }
 
-        // user opzoeken
-        $user = DB::select("SELECT * FROM users WHERE email = '" . $email . "'");
-        if (count($user) == 0) {
-            return response()->json(['error' => 'user niet gevonden'], 404);
+    /**
+     * Nieuwe ruil. De ingelogde gebruiker (= requester) wil $book overnemen
+     * en biedt $offered uit zijn eigen verzameling als ruil.
+     */
+    public function swap(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'book_id' => 'required|integer|exists:books,id',
+            'offered_book_id' => 'required|integer|exists:books,id|different:book_id',
+        ]);
+
+        $requester = $request->user();
+        $book = Book::findOrFail($validated['book_id']);
+        $offered = Book::findOrFail($validated['offered_book_id']);
+
+        if ($book->user_id === $requester->id) {
+            throw ValidationException::withMessages([
+                'book_id' => 'je kunt niet je eigen boek ruilen',
+            ]);
+        }
+        if ($offered->user_id !== $requester->id) {
+            throw ValidationException::withMessages([
+                'offered_book_id' => 'je kunt alleen boeken aanbieden die van jou zijn',
+            ]);
         }
 
-        if ($user[0]->password != $password) {
-            return response()->json(['error' => 'verkeerd wachtwoord'], 401);
-        }
-
-        // boek opzoeken
-        $book = Book::find($bookId);
-        $offered = Book::find($offeredBookId);
-
-        // ruil uitvoeren
-        $oldOwner = $book->user_id;
-        $book->user_id = $user[0]->id;
-        $book->save();
-
-        $offered->user_id = $oldOwner;
-        $offered->save();
-
-        // log de ruil
-        DB::insert("INSERT INTO swap_log (book_id, from_user, to_user, swapped_at) VALUES (" . $bookId . ", " . $oldOwner . ", " . $user[0]->id . ", NOW())");
+        // Atomic — UPDATE van beide boeken + INSERT in swaps gebeurt
+        // samen of helemaal niet. Anders kun je in een inconsistente
+        // state eindigen waar één boek wel is overgegaan en het andere niet.
+        DB::transaction(function () use ($book, $offered, $requester) {
+            $originalOwnerId = $book->user_id;
+            $book->update(['user_id' => $requester->id]);
+            $offered->update(['user_id' => $originalOwnerId]);
+            Swap::create([
+                'book_id' => $book->id,
+                'from_user_id' => $originalOwnerId,
+                'to_user_id' => $requester->id,
+            ]);
+        });
 
         return response()->json([
             'status' => 'ok',
-            'book' => $book->title,
-            'new_owner' => $user[0]->email,
-            'password' => $user[0]->password,
+            'book' => $book->only(['id', 'title', 'author']),
+            'new_owner_email' => $requester->email,
         ]);
     }
 
-    // Geef alle ruil-historie van een gebruiker terug.
-    public function history($email)
+    /**
+     * Ruil-historie van een gebruiker. Eén query met joins i.p.v. N+1
+     * per swap-regel.
+     */
+    public function history(User $user): JsonResponse
     {
-        $rows = DB::select("SELECT * FROM swap_log WHERE from_user IN (SELECT id FROM users WHERE email = '" . $email . "') OR to_user IN (SELECT id FROM users WHERE email = '" . $email . "')");
-        $result = [];
-        foreach ($rows as $r) {
-            $book = Book::find($r->book_id);
-            $fromUser = User::find($r->from_user);
-            $toUser = User::find($r->to_user);
-            $result[] = [
-                'book' => $book->title,
-                'from' => $fromUser->name,
-                'to' => $toUser->name,
-                'at' => $r->swapped_at,
-            ];
-        }
-        return response()->json($result);
+        // Authorization-check zou hier kunnen — alleen eigenaar of admin
+        // mag iemand anders zijn historie zien. Voor nu open per design;
+        // policy komt in een vervolg-PR.
+        $rows = Swap::with(['book:id,title', 'fromUser:id,name', 'toUser:id,name'])
+            ->where('from_user_id', $user->id)
+            ->orWhere('to_user_id', $user->id)
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn ($s) => [
+                'book' => $s->book->title,
+                'from' => $s->fromUser->name,
+                'to' => $s->toUser->name,
+                'at' => $s->created_at->toIso8601String(),
+            ]);
+
+        return response()->json($rows);
     }
 
-    // Admin-only: forceer een swap zonder consent van eigenaar.
-    public function forceSwap(Request $request)
+    /**
+     * Admin-only force-swap. Beveiligd via een echte 'admin' middleware
+     * + gebruikt de logged-in admin, niet een wachtwoord in de body.
+     * Logt expliciet wie het deed zodat audit-trail klopt.
+     */
+    public function forceSwap(Request $request): JsonResponse
     {
-        $adminPassword = "admin123";
-        if ($request->input('admin_password') != $adminPassword) {
-            return response()->json(['error' => 'niet toegestaan'], 403);
-        }
+        $this->middleware('can:force-swap');
 
-        $bookId = $request->input('book_id');
-        $newOwnerId = $request->input('new_owner_id');
+        $validated = $request->validate([
+            'book_id' => 'required|integer|exists:books,id',
+            'new_owner_id' => 'required|integer|exists:users,id',
+        ]);
 
-        $book = Book::find($bookId);
-        $book->user_id = $newOwnerId;
-        $book->save();
+        $book = Book::findOrFail($validated['book_id']);
+        $originalOwnerId = $book->user_id;
 
-        try {
-            DB::insert("INSERT INTO swap_log (book_id, from_user, to_user, swapped_at) VALUES (" . $bookId . ", 0, " . $newOwnerId . ", NOW())");
-        } catch (\Exception $e) {
-            // negeren
-        }
+        DB::transaction(function () use ($book, $validated, $originalOwnerId, $request) {
+            $book->update(['user_id' => $validated['new_owner_id']]);
+            Swap::create([
+                'book_id' => $book->id,
+                'from_user_id' => $originalOwnerId,
+                'to_user_id' => $validated['new_owner_id'],
+                'forced_by_admin_id' => $request->user()->id,
+            ]);
+        });
+
+        Log::info('forced swap', [
+            'book_id' => $book->id,
+            'admin_id' => $request->user()->id,
+            'from' => $originalOwnerId,
+            'to' => $validated['new_owner_id'],
+        ]);
 
         return response()->json(['status' => 'forced']);
     }

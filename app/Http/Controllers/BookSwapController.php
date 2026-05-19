@@ -19,6 +19,14 @@ class BookSwapController extends Controller
         // plaintext password meer over de lijn, geen user-enumeration via
         // verschillende foutmeldingen, één bron van waarheid voor sessies.
         $this->middleware('auth:sanctum');
+
+        // Force-swap is admin-only. Aparte gate i.p.v. wachtwoord in body.
+        $this->middleware('can:force-swap')->only(['forceSwap']);
+
+        // Rate-limit de swap-endpoints zodat een student niet per ongeluk
+        // 50 swaps achter elkaar triggert via een script-fout. 10/min is
+        // ruim voldoende voor normaal gebruik.
+        $this->middleware('throttle:10,1')->only(['swap', 'forceSwap']);
     }
 
     /**
@@ -69,17 +77,19 @@ class BookSwapController extends Controller
     }
 
     /**
-     * Ruil-historie van een gebruiker. Eén query met joins i.p.v. N+1
-     * per swap-regel.
+     * Ruil-historie van een gebruiker. Eén query met eager-loading
+     * i.p.v. N+1 per swap-regel. Alleen de gebruiker zelf en admins
+     * mogen iemands historie zien — anders is dit een privacy-lek
+     * (welke boeken iemand ruilt zegt iets over wat ze lezen).
      */
-    public function history(User $user): JsonResponse
+    public function history(Request $request, User $user): JsonResponse
     {
-        // Authorization-check zou hier kunnen — alleen eigenaar of admin
-        // mag iemand anders zijn historie zien. Voor nu open per design;
-        // policy komt in een vervolg-PR.
+        if ($request->user()->id !== $user->id && ! $request->user()->can('view-any-swap-history')) {
+            abort(403, 'alleen eigenaar of admin mag deze historie zien');
+        }
+
         $rows = Swap::with(['book:id,title', 'fromUser:id,name', 'toUser:id,name'])
-            ->where('from_user_id', $user->id)
-            ->orWhere('to_user_id', $user->id)
+            ->where(fn ($q) => $q->where('from_user_id', $user->id)->orWhere('to_user_id', $user->id))
             ->orderByDesc('created_at')
             ->get()
             ->map(fn ($s) => [
@@ -93,14 +103,13 @@ class BookSwapController extends Controller
     }
 
     /**
-     * Admin-only force-swap. Beveiligd via een echte 'admin' middleware
-     * + gebruikt de logged-in admin, niet een wachtwoord in de body.
-     * Logt expliciet wie het deed zodat audit-trail klopt.
+     * Admin-only force-swap. Authorisatie via constructor middleware
+     * ('can:force-swap'). Gebruikt de logged-in admin, niet een
+     * wachtwoord in de body. Logt expliciet wie het deed zodat
+     * audit-trail klopt.
      */
     public function forceSwap(Request $request): JsonResponse
     {
-        $this->middleware('can:force-swap');
-
         $validated = $request->validate([
             'book_id' => 'required|integer|exists:books,id',
             'new_owner_id' => 'required|integer|exists:users,id',

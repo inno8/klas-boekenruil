@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\BookSwapController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -17,3 +18,8 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+// Boek-ruil endpoints
+Route::post('/swap', [BookSwapController::class, 'swap']);
+Route::get('/swap/history/{email}', [BookSwapController::class, 'history']);
+Route::post('/swap/force', [BookSwapController::class, 'forceSwap']);

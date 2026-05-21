@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\WishlistController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -17,3 +18,10 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+// Wishlist endpoints
+Route::post('/wishlist', [WishlistController::class, 'add']);
+Route::get('/wishlist/{userId}', [WishlistController::class, 'show']);
+Route::post('/wishlist/notify/{bookId}', [WishlistController::class, 'notifyWishers']);
+Route::delete('/wishlist/{itemId}', [WishlistController::class, 'remove']);
+Route::get('/wishlist-trending', [WishlistController::class, 'trending']);

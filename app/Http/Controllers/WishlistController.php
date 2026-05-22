@@ -18,16 +18,30 @@ class WishlistController extends Controller
         $author = $request->input('author');
         $userId = $request->input('user_id');
 
-        // user opzoeken
-        $user = DB::select("SELECT * FROM users WHERE id = " . $userId)[0];
+        // user opzoeken — findOrFail i.p.v. raw SQL + [0]
+        // → query builder gebruikt prepared statements, dus geen SQL-injectie meer
+        // → findOrFail() geeft een 404 als de user niet bestaat (geen fatal error)
+        $user = User::findOrFail($userId);
 
-        // check of het al op de wishlist staat
-        $existing = DB::select("SELECT * FROM wishlist WHERE user_id = " . $userId . " AND title = '" . $title . "'");
-        if (count($existing) > 0) {
+        // check of het al op de wishlist staat — query builder met where()
+        // bindt de parameters automatisch, dus title kan geen SQL meer bevatten
+        $existing = DB::table('wishlist')
+            ->where('user_id', $userId)
+            ->where('title', $title)
+            ->exists();
+        if ($existing) {
             return response()->json(['error' => 'staat al op je lijst']);
         }
 
-        DB::insert("INSERT INTO wishlist (user_id, title, author, added_at) VALUES (" . $userId . ", '" . $title . "', '" . $author . "', NOW())");
+        // INSERT via de query builder — bindt de waardes automatisch en
+        // accepteert een DB::raw('NOW()') voor de timestamp zodat de
+        // database de tijd zet en we niet meer met PHP-strings stoeien.
+        DB::table('wishlist')->insert([
+            'user_id' => $userId,
+            'title' => $title,
+            'author' => $author,
+            'added_at' => DB::raw('NOW()'),
+        ]);
 
         return response()->json(['status' => 'added', 'user_email' => $user->email]);
     }

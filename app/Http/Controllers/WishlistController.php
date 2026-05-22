@@ -2,21 +2,33 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\AddWishlistRequest;
 use App\Models\Book;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 class WishlistController extends Controller
 {
     // Studenten kunnen boeken toevoegen aan hun verlanglijst.
     // Wanneer iemand het boek aanbiedt, krijgen ze een mail.
-    public function add(Request $request)
+    //
+    // Vorige docent-feedback: ruwe request input zonder validatie =
+    // veiligheidsrisico. Opgelost door AddWishlistRequest te
+    // type-hinten: Laravel valideert automatisch voordat deze method
+    // draait, en geeft de student een 422 met duidelijke foutmeldingen
+    // als er iets mist of fout is. De controller blijft dun.
+    public function add(AddWishlistRequest $request)
     {
-        $title = $request->input('title');
-        $author = $request->input('author');
-        $userId = $request->input('user_id');
+        // Na validatie: validated() geeft ALLEEN de gevalideerde
+        // velden terug. Geen sluipverkeer van willekeurige request
+        // input naar de business logic.
+        $validated = $request->validated();
+        $title = $validated['title'];
+        $author = $validated['author'];
+        $userId = $validated['user_id'];
 
         // user opzoeken — findOrFail i.p.v. raw SQL + [0]
         // → query builder gebruikt prepared statements, dus geen SQL-injectie meer
@@ -78,17 +90,42 @@ class WishlistController extends Controller
 
         $wishers = DB::select("SELECT u.email, u.name FROM users u JOIN wishlist w ON w.user_id = u.id WHERE w.title = '" . $title . "'");
 
+        // Vorige docent-feedback: de try/catch slikt alle mail-fouten
+        // zonder logging — debugging onmogelijk. Oplossing: log de
+        // uitzondering met genoeg context (boek + ontvanger) zodat we
+        // bij een mailprobleem precies kunnen zien wat er misging.
+        // We blijven wel doorgaan met de andere wishers — één bounce
+        // mag niet de hele notify-flow stilleggen — maar de fout
+        // verdwijnt niet meer in het niets.
+        $sent = 0;
+        $failed = 0;
         foreach ($wishers as $w) {
             try {
-                Mail::raw("Hoi " . $w->name . ", het boek '" . $title . "' is nu beschikbaar op het platform!", function ($message) use ($w) {
-                    $message->to($w->email)->subject("Boek beschikbaar");
-                });
-            } catch (\Exception $e) {
-                // mail mislukt — gewoon doorgaan
+                Mail::raw(
+                    "Hoi " . $w->name . ", het boek '" . $title
+                        . "' is nu beschikbaar op het platform!",
+                    function ($message) use ($w) {
+                        $message->to($w->email)->subject("Boek beschikbaar");
+                    }
+                );
+                $sent++;
+            } catch (\Throwable $e) {
+                $failed++;
+                Log::error('wishlist.notifyWishers: mail mislukt', [
+                    'book_id' => $bookId,
+                    'book_title' => $title,
+                    'recipient_email' => $w->email,
+                    'exception_class' => get_class($e),
+                    'message' => $e->getMessage(),
+                ]);
             }
         }
 
-        return response()->json(['notified' => count($wishers)]);
+        return response()->json([
+            'notified' => $sent,
+            'failed' => $failed,
+            'total' => count($wishers),
+        ]);
     }
 
     // Verwijder een item van de wishlist.

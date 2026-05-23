@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\WishlistController;
+use App\Http\Controllers\BookSwapController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -25,3 +26,8 @@ Route::get('/wishlist/{userId}', [WishlistController::class, 'show']);
 Route::post('/wishlist/notify/{bookId}', [WishlistController::class, 'notifyWishers']);
 Route::delete('/wishlist/{itemId}', [WishlistController::class, 'remove']);
 Route::get('/wishlist-trending', [WishlistController::class, 'trending']);
+
+// Boek-ruil endpoints
+Route::post('/swap', [BookSwapController::class, 'swap']);
+Route::get('/swap/history/{email}', [BookSwapController::class, 'history']);
+Route::post('/swap/force', [BookSwapController::class, 'forceSwap']);

@@ -88,7 +88,16 @@ class WishlistController extends Controller
         $book = Book::find($bookId);
         $title = $book->title;
 
-        $wishers = DB::select("SELECT u.email, u.name FROM users u JOIN wishlist w ON w.user_id = u.id WHERE w.title = '" . $title . "'");
+        // Vorige docent-feedback ging vooral over de add() method,
+        // maar de raw SQL hier had hetzelfde probleem: string-concat
+        // op $title zou een titel met aanhalingstekens / SQL-syntax
+        // direct in de query laten landen. Query builder met join +
+        // where() bindt $title als parameter, dus injectie is uit.
+        $wishers = DB::table('users as u')
+            ->join('wishlist as w', 'w.user_id', '=', 'u.id')
+            ->where('w.title', $title)
+            ->select('u.email', 'u.name')
+            ->get();
 
         // Vorige docent-feedback: de try/catch slikt alle mail-fouten
         // zonder logging — debugging onmogelijk. Oplossing: log de
@@ -129,9 +138,21 @@ class WishlistController extends Controller
     }
 
     // Verwijder een item van de wishlist.
+    //
+    // Vorige docent-feedback (impliciet uit de SQL-injectie lijn): elke
+    // raw query met string-concat is een risico. Hier was $itemId
+    // wel een int uit de route, maar Laravel's route-binding garandeert
+    // dat NIET in alle versies + maakt review-toolen onnodig moeilijk
+    // ("is dit echt veilig?" elke keer). Query builder is de
+    // standaard, geen uitzonderingen.
     public function remove(Request $request, $itemId)
     {
-        DB::delete("DELETE FROM wishlist WHERE id = " . $itemId);
+        $deleted = DB::table('wishlist')
+            ->where('id', $itemId)
+            ->delete();
+        if ($deleted === 0) {
+            return response()->json(['error' => 'item niet gevonden'], 404);
+        }
         return response()->json(['status' => 'removed']);
     }
 

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\AddWishlistRequest;
 use App\Models\Book;
 use App\Models\User;
+use App\Services\WishlistViewService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -59,26 +60,25 @@ class WishlistController extends Controller
     }
 
     // Geef alle items op iemands wishlist.
-    public function show($userId)
+    //
+    // Vorige docent-feedback: de available_count-berekening + de
+    // per-item Book::where loop zaten in deze controller. Drie
+    // problemen tegelijk:
+    //   1. business logic in een controller — moeilijk te
+    //      hergebruiken / testen
+    //   2. N+1 query: één SELECT per wishlist-item
+    //   3. raw SQL met string-concat op $userId — zelfde
+    //      injectie-risico als in add()
+    //
+    // Opgelost door:
+    //   - alles te delegeren aan WishlistViewService (zie app/Services)
+    //   - de service gebruikt query builder + één gegroepeerde
+    //     count query in plaats van de loop
+    //   - de controller blijft één regel: route param → service call
+    //     → JSON response
+    public function show(int $userId, WishlistViewService $service)
     {
-        $items = DB::select("SELECT * FROM wishlist WHERE user_id = " . $userId);
-        $result = [];
-        foreach ($items as $item) {
-            $matches = Book::where('title', $item->title)->get();
-            $availableCount = 0;
-            foreach ($matches as $m) {
-                if ($m->available == true) {
-                    $availableCount = $availableCount + 1;
-                }
-            }
-            $result[] = [
-                'title' => $item->title,
-                'author' => $item->author,
-                'added_at' => $item->added_at,
-                'available_count' => $availableCount,
-            ];
-        }
-        return response()->json($result);
+        return response()->json($service->buildFor($userId));
     }
 
     // Notificeer iedereen op wiens verlanglijst dit boek staat
@@ -157,19 +157,46 @@ class WishlistController extends Controller
     }
 
     // Top 10 meest gewenste boeken op het hele platform.
+    //
+    // Vorige docent-feedback over raw SQL geldt hier ook. Hoewel deze
+    // query geen user-input nam (alleen literals), is "altijd query
+    // builder" beter dan "raw SQL waar het toevallig veilig is" —
+    // reviewers hoeven dan niet elke raw query opnieuw te beoordelen.
+    //
+    // Ook: de loop deed N+1 Book::where->first() calls. Vervangen
+    // door één eager-load met whereIn + ->load('user'), waardoor we
+    // ten hoogste 2 queries doen (boeken + users), niet 1 + 2N.
     public function trending()
     {
-        $rows = DB::select("SELECT title, COUNT(*) as cnt FROM wishlist GROUP BY title ORDER BY cnt DESC LIMIT 10");
-        $result = [];
-        foreach ($rows as $r) {
-            $book = Book::where('title', $r->title)->first();
-            $result[] = [
-                'title' => $r->title,
-                'wishers' => $r->cnt,
-                'currently_available' => $book ? $book->available : false,
-                'owner_email' => $book ? $book->user->email : null,
-            ];
+        $rows = DB::table('wishlist')
+            ->select('title', DB::raw('COUNT(*) as cnt'))
+            ->groupBy('title')
+            ->orderByDesc('cnt')
+            ->limit(10)
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return response()->json([]);
         }
+
+        // Pak alle relevante Book-rijen + hun owner in twee queries
+        // (boeken zelf + eager load van .user), gekeyed op title voor
+        // O(1) lookup in de loop hieronder.
+        $books = Book::with('user')
+            ->whereIn('title', $rows->pluck('title')->all())
+            ->get()
+            ->keyBy('title');
+
+        $result = $rows->map(function ($r) use ($books) {
+            $book = $books->get($r->title);
+            return [
+                'title' => $r->title,
+                'wishers' => (int) $r->cnt,
+                'currently_available' => $book ? (bool) $book->available : false,
+                'owner_email' => $book && $book->user ? $book->user->email : null,
+            ];
+        });
+
         return response()->json($result);
     }
 }

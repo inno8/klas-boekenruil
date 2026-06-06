@@ -59,6 +59,17 @@ class BookController extends Controller
         return redirect()->route('books.index')->with('success', 'Boek toegevoegd.');
     }
 
+    // Toont de boeken die de ingelogde gebruiker zelf heeft aangeboden,
+    // nieuwste eerst. Zo kan iemand snel zijn eigen aanbod beheren.
+    public function mine(Request $request): View
+    {
+        $books = Book::where('user_id', $request->user()->id)
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return view('books.mine', ['books' => $books]);
+    }
+
     // Eigenaar haalt zijn boek weer offline (bv. al geruild buiten de app om).
     //
     // Iteration 3: added the ownership check that iter 1 flagged

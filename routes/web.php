@@ -24,4 +24,6 @@ Route::get('/books', [BookController::class, 'index'])->name('books.index');
 Route::middleware('auth')->group(function () {
     Route::post('/books', [BookController::class, 'store'])->name('books.store');
     Route::delete('/books/{id}', [BookController::class, 'destroy'])->name('books.destroy');
+    // Mijn eigen aangeboden boeken.
+    Route::get('/my-books', [BookController::class, 'mine'])->name('books.mine');
 });

@@ -163,4 +163,18 @@ class BookController extends Controller
         $book->save();
         return redirect()->back();
     }
+
+    // Reserveer een beschikbaar boek voor de ingelogde gebruiker.
+    // Zo kan iemand anders het niet meteen ook claimen.
+    public function reserve(Request $request, $id)
+    {
+        $book = Book::find($id);
+
+        $book->available = false;
+        $book->save();
+
+        \Log::info('Boek gereserveerd: ' . $book->id . ' door ' . $request->user()->id);
+
+        return redirect()->route('books.index')->with('success', 'Boek gereserveerd!');
+    }
 }

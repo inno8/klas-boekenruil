@@ -163,4 +163,23 @@ class BookController extends Controller
         $book->save();
         return redirect()->back();
     }
+
+    // Importeer boeken uit een geupload CSV-bestand.
+    public function import(Request $request)
+    {
+        $path = $request->file('csv')->getRealPath();
+        $rows = explode("\n", file_get_contents($path));
+
+        foreach ($rows as $row) {
+            $cols = explode(',', $row);
+            $book = new Book();
+            $book->title = $cols[0];
+            $book->author = $cols[1];
+            $book->available = true;
+            $book->save();
+            \Log::info('Geimporteerd: ' . $cols[0]);
+        }
+
+        return redirect()->route('books.index')->with('success', 'Boeken geimporteerd.');
+    }
 }

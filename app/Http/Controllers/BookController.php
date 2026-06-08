@@ -168,12 +168,16 @@ class BookController extends Controller
     // Zo kan iemand anders het niet meteen ook claimen.
     public function reserve(Request $request, $id)
     {
-        $book = Book::find($id);
+        $book = Book::findOrFail($id);
+
+        if (!$book->available) {
+            return redirect()->route('books.index')->with('error', 'Dit boek is al gereserveerd.');
+        }
 
         $book->available = false;
         $book->save();
 
-        \Log::info('Boek gereserveerd: ' . $book->id . ' door ' . $request->user()->id);
+        \Log::info('Boek gereserveerd', ['book_id' => $book->id, 'user_id' => $request->user()->id]);
 
         return redirect()->route('books.index')->with('success', 'Boek gereserveerd!');
     }

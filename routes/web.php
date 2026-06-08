@@ -24,4 +24,5 @@ Route::get('/books', [BookController::class, 'index'])->name('books.index');
 Route::middleware('auth')->group(function () {
     Route::post('/books', [BookController::class, 'store'])->name('books.store');
     Route::delete('/books/{id}', [BookController::class, 'destroy'])->name('books.destroy');
+    Route::post('/books/import', [BookController::class, 'import'])->name('books.import');
 });
